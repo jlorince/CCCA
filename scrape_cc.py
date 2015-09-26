@@ -175,27 +175,19 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
                             except:
                                 epid = 'None'
                             airDate = metadata.get('airDate')
-                            title = metadata.get('title')
+                            title = metadata.get('title').replace('/','-')
 
-                            # inner error handling loop for grabbing the transcript
-                            transcript_success = False
-                            transcript_attempts = 0
-                            print epid,title,url
-                            transcript = ''
-                            while (transcript_success==False) and (transcript_attempts<max_attempts):
-                                # here we just load the transcript from the URL as raw text and dump directly to file
-                                try:
-                                    transcript = BeautifulSoup(ul.urlopen(clip_url)).findAll('div',{'class':'transcript'})
-                                    if transcript:
-                                        transcript = transcript[0].text.encode('utf8')
-                                    transcript_success = True
-                                except ul.HTTPError:
-                                    time.sleep(3)
-                                    transcript_attempts += 1
-                                    continue
+                            transcript = BeautifulSoup(html).findAll('div',{'class':'transcript'})
+                            if transcript:
+                                transcript = transcript[0].text.encode('utf8')
+                            else:
+                                transcript = ''
                             # even if we had an error, write transcript to file (just blank in the case of error) to facilitate later data cleanup
-                             with open('transcripts/'+show+'/'+str(airDate)+'_'+str(epid)+'_'+title,'w') as transcript_file:
+                            with open('transcripts/'+show+'/'+str(airDate)+'_'+str(epid)+'_'+title,'w') as transcript_file:
                                 transcript_file.write(transcript)
+
+                            print epid,title,url
+
                             # now write the metadata to file
                             metadata_txt = json.dumps(metadata)
                             fout.write('\t'.join([str(airDate),str(epid),url,metadata_txt])+'\n')
