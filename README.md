@@ -15,4 +15,4 @@ Operates in 3 main phases:
 2. For each episode stored in the metadata files, extract a listing of all video clip URLs for that episode and save as text to ./clip-urls_showname
 3. For each url saved to the clip-urls file, extract the JSON metadata and rawtext transcript for each clip, saving metadata to ./clip-metadata_showname and transcripts to ./transcripts/showname/, with each transcript in a separate file.
 
-There's a bit of redundancy here we might be able to avoid, but the weird page oranization on cc.com makes this a little tricky. Either way, this method isn't as fast as it could be, but works.
+There's a bit of redundancy here we might be able to avoid, but the weird page oranization on cc.com makes this a little tricky. Either way, this method isn't as fast as it could be, but works.# PythonTutorial
