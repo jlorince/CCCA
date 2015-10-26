@@ -5,31 +5,16 @@ import datetime
 import os
 import cPickle
 import time
+from httplib import BadStatusLine
 
-"""
-Quick and dirty scraper to record data from Comedy Central (specifically for for The Colbert Report and The Daily Show, but would presumably work for other shows with minor modifications) the following information:
-
-    A: JSON-encoded episode metadata
-    B: JSON-encoded clip/video metadata for each episode
-    C: Raw text transcripts for every clip/video
-
-This is not the cleanest or best-optimized crawler, but should work relatively smoothly. We of course should do some sanity checking (e.g. making sure episodes URLs we couldn't access were just down temporarily).
-
-Operates in 3 main phases:
-
-    1: Grab JSON episode metadata for every episode, extracted via the http://www.cc.com/shows/show_name/video-guide page, and save to ./episode-metadata_showname
-    2: For each episode stored in the metadata files, extract a listing of all video clip URLs for that episode and save as text to ./clip-urls_showname
-    3: For each url saved to the clip-urls file, extract the JSON metadata and rawtext transcript for each clip, saving metadata to ./clip-metadata_showname and transcripts to ./transcripts/showname/, with each transcript in a separate file.
-
-There's a bit of redundancy here we might be able to avoid, but the weird page oranization on cc.com makes this a little tricky. Either way, this method isn't as fast as it could be, but works (and given the small number of episodes/clips speed isn't a huge issue).
-"""
 
 max_attempts = 10
 
 ### Get episode-level metadata
+# probably should add some error handling here, too
 for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
 
-    filename = 'episode_metadata'+show
+    filename = 'data/episode_metadata'+show
 
     with open(filename,'a') as fout:
 
@@ -60,7 +45,7 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
 for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
 
     # in case we've encountered an errror and had to restart, check which episodes we've already processed
-    filename = 'clip-urls_'+show
+    filename = 'data/clip-urls_'+show
     done = set()
     if os.path.exists(filename):
         with open(filename,'r') as fin:
@@ -69,7 +54,7 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
                 done.add(airDate)
 
     # for each episode we've recorded in the episode-metadata file...
-    with open('episode-metadata_'+show,'r') as fin, open(filename,'a') as fout:
+    with open('data/episode-metadata_'+show,'r') as fin, open(filename,'a') as fout:
         cnt = 0
         for line in fin:
 
@@ -122,21 +107,24 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
                                     clip_urls.append(featured_video_url)
 
                         # now write everything to file, in format:
+                        #clip_urls = []
                         fout.write('\t'.join([airDate,epid]+clip_urls)+'\n')
                         fout.flush()
                         success = True
 
-                    except ul.HTTPError:
+                    except (ul.HTTPError, BadStatusLine):
                         time.sleep(3)
                         attempts += 1
                         continue
+                if success == False:
+                    fout.write('ERROR LOADING EPISODE URL\n')
 
 ### Get metadata and transcript for each clip
 
 for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
 
     # in case we've encountered an errror and had to restart, check which clips we've already processed
-    filename = 'clip-metadata_'+show
+    filename = 'data/clip-metadata_'+show
     done = set()
     if os.path.exists(filename):
         with open(filename,'r') as fin:
@@ -145,29 +133,39 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
                 done.add(url)
 
     # Each line in our input file has a list of URLs, so iterate over lines, then over URLs
-    with open('clip-urls_'+show,'r') as fin, open(filename,'a') as fout:
+    cnt = 0
+    with open('data/clip-urls_'+show,'r') as fin, open(filename,'a') as fout:
 
         for line in fin:
             for url in line.strip().split('\t')[2:]:
+                cnt += 1
                 # if we've already processed the clip, skip to the next one
                 if url in done:
                     continue
                 else:
-                    # outer error handling loop for grabbing the metadata
+                    # simple error handling loop
                     success = False
                     attempts = 0
                     while (success==False) and (attempts<max_attempts):
                         try:
                             # open episode URL
-                            html = ul.urlopen(url).read()
+                            if url:
+                                html = ul.urlopen(url).read()
+                            else:
+                                break
                             feed_info = None
-                            for line in html.split('\n'):
-                                if 'triforceManifestFeed' in line:
-                                    feed_info = json.loads(line[line.find('=')+1:].strip()[:-1])
+                            for _line in html.split('\n'):
+                                if 'triforceManifestFeed' in _line:
+                                    feed_info = json.loads(_line[_line.find('=')+1:].strip()[:-1])
                                     break
+                            # kludge - sometimes we successfully load the URL, but don't find the feed??
+                            if not feed_info:
+                                print 'no feed_info?'
+                                time.sleep(3)
+                                continue
+
                             # here we only care about the tier 2 feed, which contains the actual video
                             clip = json.loads(ul.urlopen(feed_info['manifest']['zones']['t2_lc_promo1']['feed']).read())['result']
-                            transcript_url = clip['transcriptURL']['url']
                             metadata = clip['video']
                             # we use episode ID and airDate here because, for some reason, a few Colbert episodes don't have episode number info
                             try:
@@ -183,10 +181,10 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
                             else:
                                 transcript = ''
                             # even if we had an error, write transcript to file (just blank in the case of error) to facilitate later data cleanup
-                            with open('transcripts/'+show+'/'+str(airDate)+'_'+str(epid)+'_'+title,'w') as transcript_file:
+                            with open('data/transcripts/'+show+'/'+str(airDate)+'_'+str(epid)+'_'+title,'w') as transcript_file:
                                 transcript_file.write(transcript)
 
-                            print epid,title,url
+                            print cnt,epid,title,url
 
                             # now write the metadata to file
                             metadata_txt = json.dumps(metadata)
@@ -194,7 +192,7 @@ for show in ('the-daily-show-with-jon-stewart','the-colbert-report'):
                             fout.flush()
                             success = True
 
-                        except ul.HTTPError:
+                        except  (ul.HTTPError, BadStatusLine):
                             time.sleep(3)
                             attempts += 1
                             continue
